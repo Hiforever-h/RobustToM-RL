@@ -1,0 +1,32 @@
+{
+  "name": "Hi-ToM Counterfactual Observation Pairs",
+  "source": "https://github.com/ying-hui-he/Hi-ToM_dataset",
+  "source_file": "/Users/hiforever/Downloads/Hi-ToM_data.json",
+  "source_sha256": "088b6c54d21d1a0d3045812f36ac8b5b342346a6a996c003738976730ac256f4",
+  "prompting_type": "CoTP",
+  "seed": 42,
+  "eval_fraction": 0.2,
+  "source_records": 600,
+  "source_story_groups": 120,
+  "generated_records": 1200,
+  "split_counts": {
+    "train": 960,
+    "eval": 240
+  },
+  "order_counts": {
+    "0": 240,
+    "1": 240,
+    "2": 240,
+    "3": 240,
+    "4": 240
+  },
+  "intervention_counts": {
+    "observed": 600,
+    "hidden": 600
+  },
+  "source_higher_order_earliest_exit_shortcut_accuracy": 0.8666666666666667,
+  "generated_higher_order_earliest_exit_shortcut_accuracy": 0.0,
+  "generated_higher_order_last_mention_shortcut_accuracy": 0.5,
+  "higher_order_shortcut_conflict_rate": 1.0,
+  "higher_order_last_mention_conflict_rate": 0.5
+}

@@ -1,0 +1,111 @@
+{
+  "name": "RobustToM-RL RFT derived split",
+  "seed": 2026,
+  "holdout_exploretom_pairs": [
+    "exploretom:exploretom-cf-0004",
+    "exploretom:exploretom-cf-0007",
+    "exploretom:exploretom-cf-0009",
+    "exploretom:exploretom-cf-0022",
+    "exploretom:exploretom-cf-0026",
+    "exploretom:exploretom-cf-0028",
+    "exploretom:exploretom-cf-0043",
+    "exploretom:exploretom-cf-0047",
+    "exploretom:exploretom-cf-0067",
+    "exploretom:exploretom-cf-0068",
+    "exploretom:exploretom-cf-0070",
+    "exploretom:exploretom-cf-0142",
+    "exploretom:exploretom-cf-0153",
+    "exploretom:exploretom-cf-0168",
+    "exploretom:exploretom-cf-0178",
+    "exploretom:exploretom-cf-0183",
+    "exploretom:exploretom-cf-0197",
+    "exploretom:exploretom-cf-0201",
+    "exploretom:exploretom-cf-0217",
+    "exploretom:exploretom-cf-0223",
+    "exploretom:exploretom-cf-0224",
+    "exploretom:exploretom-cf-0240",
+    "exploretom:exploretom-cf-0249",
+    "exploretom:exploretom-cf-0250",
+    "exploretom:exploretom-cf-0251",
+    "exploretom:exploretom-cf-0263",
+    "exploretom:exploretom-cf-0282",
+    "exploretom:exploretom-cf-0284",
+    "exploretom:exploretom-cf-0289",
+    "exploretom:exploretom-cf-0294",
+    "exploretom:exploretom-cf-0310",
+    "exploretom:exploretom-cf-0315",
+    "exploretom:exploretom-cf-0324",
+    "exploretom:exploretom-cf-0330",
+    "exploretom:exploretom-cf-0334",
+    "exploretom:exploretom-cf-0337",
+    "exploretom:exploretom-cf-0342",
+    "exploretom:exploretom-cf-0344",
+    "exploretom:exploretom-cf-0374",
+    "exploretom:exploretom-cf-0396",
+    "exploretom:exploretom-cf-0408",
+    "exploretom:exploretom-cf-0413",
+    "exploretom:exploretom-cf-0419",
+    "exploretom:exploretom-cf-0426",
+    "exploretom:exploretom-cf-0431",
+    "exploretom:exploretom-cf-0436",
+    "exploretom:exploretom-cf-0466",
+    "exploretom:exploretom-cf-0470",
+    "exploretom:exploretom-cf-0473",
+    "exploretom:exploretom-cf-0487",
+    "exploretom:exploretom-cf-0491",
+    "exploretom:exploretom-cf-0493",
+    "exploretom:exploretom-cf-0545",
+    "exploretom:exploretom-cf-0552",
+    "exploretom:exploretom-cf-0553",
+    "exploretom:exploretom-cf-0554",
+    "exploretom:exploretom-cf-0555",
+    "exploretom:exploretom-cf-0562",
+    "exploretom:exploretom-cf-0563",
+    "exploretom:exploretom-cf-0590"
+  ],
+  "input_files": {
+    "train": {
+      "path": "data/counterfactual_process_reward/train.jsonl",
+      "sha256": "d4d6eee027d0f4dd6c5ca67da535ec55d94fcaa6a86241d016dcc986a1b194cf"
+    },
+    "val": {
+      "path": "data/counterfactual_process_reward/val.jsonl",
+      "sha256": "d003c90cf5eec747325489004a5a4f21f640414b19d6cc7a743cfda5ea866fac"
+    },
+    "test": {
+      "path": "data/counterfactual_process_reward/test.jsonl",
+      "sha256": "bee6681aa1f86e21f20246a5e9332c1e17f4fcbc5e1b2556b8e68d1086cc60c1"
+    }
+  },
+  "split_counts": {
+    "train": 3080,
+    "dev": 520,
+    "test": 600
+  },
+  "pair_counts": {
+    "train": 1540,
+    "dev": 260,
+    "test": 300
+  },
+  "source_counts": {
+    "hi-tom": 3000,
+    "exploretom": 1200
+  },
+  "order_counts": {
+    "3": 600,
+    "2": 1200,
+    "1": 1200,
+    "0": 600,
+    "4": 600
+  },
+  "intervention_counts": {
+    "observed": 2100,
+    "hidden": 2100
+  },
+  "output_sha256": {
+    "train": "2cb040838a2c45e69f9e77845b6e3adf8cf5dd301391c271eda36a928105b033",
+    "dev": "ea140c359ebbc1a76a7a9e77868555003ce5b3e5409df375f28783a0b9ecb26a",
+    "test": "13a60122310019b55498ce1303b3e1f2f0cfb0ee7c7cf075845d08a9a0b623d5"
+  },
+  "process_target_version": "1.0"
+}
