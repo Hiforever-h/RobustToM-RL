@@ -47,6 +47,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", required=True)
     parser.add_argument("--train-file", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--logging-dir",
+        type=Path,
+        help="TensorBoard event directory (default: <output-dir>/tensorboard)",
+    )
     parser.add_argument("--revision")
     parser.add_argument("--max-seq-length", type=int, default=2048)
     parser.add_argument("--per-device-train-batch-size", type=int, default=2)
@@ -73,6 +78,8 @@ def main() -> None:  # pragma: no cover - requires the GPU training stack
 
     set_seed(args.seed)
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    args.logging_dir = args.logging_dir or args.output_dir / "tensorboard"
+    args.logging_dir.mkdir(parents=True, exist_ok=True)
     tokenizer = AutoTokenizer.from_pretrained(args.model, revision=args.revision, use_fast=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -102,7 +109,6 @@ def main() -> None:  # pragma: no cover - requires the GPU training stack
     training_args = TrainingArguments(
         output_dir=str(args.output_dir),
         per_device_train_batch_size=args.per_device_train_batch_size,
-        per_device_eval_batch_size=args.per_device_eval_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         num_train_epochs=args.num_train_epochs,
         learning_rate=args.learning_rate,
@@ -112,13 +118,16 @@ def main() -> None:  # pragma: no cover - requires the GPU training stack
         lr_scheduler_type="cosine",
         bf16=torch.cuda.is_available(),
         tf32=torch.cuda.is_available(),
+        logging_dir=str(args.logging_dir),
+        logging_strategy="steps",
         logging_steps=args.logging_steps,
         logging_first_step=True,
         save_strategy="epoch",
         save_total_limit=args.save_total_limit,
         evaluation_strategy="no",
         remove_unused_columns=False,
-        report_to=[],
+        report_to=["tensorboard"],
+        run_name=args.output_dir.name,
         seed=args.seed,
         data_seed=args.seed,
     )
