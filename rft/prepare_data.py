@@ -88,11 +88,19 @@ def derive_split(input_dir: Path, output_dir: Path, seed: int, holdout_pairs: in
     derived = {"train": derived_train, "dev": derived_dev, "test": derived_test}
     validate_pairs(derived)
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=False)
     for split, rows in derived.items():
         write_jsonl(output_dir / f"{split}.jsonl", rows)
 
     all_rows = [row for rows in derived.values() for row in rows]
+    process_target_versions = {
+        str(row.get("process_target_version", "1.0")) for row in all_rows
+    }
+    if len(process_target_versions) != 1:
+        raise ValueError(
+            f"Mixed process target versions: {sorted(process_target_versions)}"
+        )
+    process_target_version = next(iter(process_target_versions))
     manifest = {
         "name": "RobustToM-RL RFT derived split",
         "seed": seed,
@@ -109,7 +117,7 @@ def derive_split(input_dir: Path, output_dir: Path, seed: int, holdout_pairs: in
         "output_sha256": {
             split: sha256_file(output_dir / f"{split}.jsonl") for split in derived
         },
-        "process_target_version": "1.0",
+        "process_target_version": process_target_version,
     }
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest

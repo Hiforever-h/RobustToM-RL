@@ -49,18 +49,29 @@ def _metric_rows(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         prediction, _ = parse_prediction(response if isinstance(response, str) else "")
         checks = result["checks"]
         mode = target.get("reasoning_mode")
-        core_state = (
-            checks.get("world_state", False)
-            if mode == "world_state"
-            else checks.get("final_move_observed", False) and checks.get("nested_belief", False)
-        )
+        if mode == "world_state":
+            core_state = checks.get("world_state", False)
+        elif mode == "nested_belief":
+            core_state = checks.get("belief_trace", False)
+        else:
+            core_state = checks.get("final_move_observed", False) and checks.get(
+                "nested_belief", False
+            )
         state_value = None
         if prediction is not None:
-            state_value = normalize(
-                prediction.get("world_state", "")
-                if mode == "world_state"
-                else prediction.get("nested_belief", "")
-            )
+            if mode == "world_state":
+                state_value = normalize(prediction.get("world_state", ""))
+            elif mode == "nested_belief":
+                trace = prediction.get("belief_trace")
+                if (
+                    isinstance(trace, list)
+                    and trace
+                    and isinstance(trace[-1], dict)
+                    and isinstance(trace[-1].get("location"), str)
+                ):
+                    state_value = normalize(trace[-1]["location"])
+            else:
+                state_value = normalize(prediction.get("nested_belief", ""))
         consistent = bool(
             prediction is not None
             and isinstance(prediction.get("answer"), str)

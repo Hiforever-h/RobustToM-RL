@@ -55,5 +55,30 @@ class ProcessRewardTest(unittest.TestCase):
         result = reward.score_process_output(output, self.target)
         self.assertEqual(result["reward"], 0.95)
 
+    def test_nested_belief_trace_receives_stepwise_reward(self) -> None:
+        target = {
+            "tom_order": 2,
+            "belief_chain": ["Alice", "Bob"],
+            "object": "passport",
+            "reasoning_mode": "nested_belief",
+            "belief_trace": [
+                {"belief_chain": ["Bob"], "location": "linen chest"},
+                {
+                    "belief_chain": ["Alice", "Bob"],
+                    "location": "archive drawer",
+                },
+            ],
+            "answer": "archive drawer",
+        }
+        self.assertEqual(reward.score_process_output(target, target)["reward"], 1.0)
+
+        prediction = json.loads(json.dumps(target))
+        prediction["belief_trace"][0]["location"] = "metal trunk"
+        result = reward.score_process_output(prediction, target)
+        self.assertEqual(result["checks"]["belief_trace_steps"], [False, True])
+        self.assertAlmostEqual(result["components"]["belief_trace"], 0.275)
+        self.assertEqual(result["components"]["answer"], 0.0)
+        self.assertAlmostEqual(result["reward"], 0.525)
+
 if __name__ == "__main__":
     unittest.main()

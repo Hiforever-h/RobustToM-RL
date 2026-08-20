@@ -33,6 +33,7 @@ lib/
 lib64/
 parts/
 runs/
+data/
 sdist/
 var/
 *.egg-info/
