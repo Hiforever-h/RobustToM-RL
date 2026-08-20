@@ -14,6 +14,37 @@ SPEC.loader.exec_module(targets)
 
 
 class ProcessTargetTest(unittest.TestCase):
+    def test_process_prompt_contains_ordered_few_shot_demonstrations(self) -> None:
+        record = {
+            "source_dataset": "hi-tom",
+            "global_sample_id": "hi-tom:prompt-test",
+            "question_order": 2,
+            "question": "Where does Alice think Bob thinks the passport is?",
+            "counterfactual_anchor_container": "archive_drawer",
+            "counterfactual_container": "linen_chest",
+            "intervention_type": "hidden",
+            "answer": "archive_drawer",
+            "story": "1 Alice and Bob entered the room.\n2 The passport is in the archive_drawer.",
+            "choices": "A. archive_drawer, B. linen_chest",
+            "prompt": "Read the story.\n\nNote: Track observations.",
+        }
+        prompt = targets.build_process_prompt(record)
+        self.assertIn("Demonstration 1: order 0 world-state question", prompt)
+        self.assertIn("Demonstration 2: order 1 observed belief question", prompt)
+        self.assertIn("Demonstration 3: order 2 hidden belief question", prompt)
+        self.assertLess(
+            prompt.index("Demonstration 1"),
+            prompt.index("Demonstration 2"),
+        )
+        self.assertLess(
+            prompt.index("Demonstration 2"),
+            prompt.index("Demonstration 3"),
+        )
+        self.assertIn('"belief_chain":["Alice","Bob"]', prompt)
+        self.assertIn('"final_move_observed":false', prompt)
+        # The actual record remains after the demonstrations, preserving recency.
+        self.assertGreater(prompt.rfind("archive_drawer"), prompt.index("Demonstration 3"))
+
     def test_hi_tom_belief_target(self) -> None:
         record = {
             "source_dataset": "hi-tom",

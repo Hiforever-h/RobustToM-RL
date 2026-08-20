@@ -147,8 +147,54 @@ def build_process_prompt(record: dict[str, Any]) -> str:
         "only when the complete queried belief chain jointly observes the final "
         "move relevant to the answer."
     )
+    demonstrations = (
+        "The following demonstrations show how to fill the JSON fields. "
+        "They are format demonstrations only. Solve the actual story independently. "
+        "The answer and nested_belief/world_state fields contain container names, "
+        "not choice letters. The belief_chain contains character names only, "
+        "ordered from outer thinker to inner thinker.\n\n"
+        "Demonstration 1: order 0 world-state question\n\n"
+        "Story:\n"
+        "1 Ava entered the room.\n"
+        "2 The key is in the red_box.\n"
+        "3 An automated system moved the key to the blue_box while Ava watched.\n\n"
+        "Question: Where is the key really?\n"
+        "Choices: A. red_box, B. blue_box\n\n"
+        "Output:\n"
+        '{"tom_order":0,"belief_chain":[],"object":"key",'
+        '"reasoning_mode":"world_state","world_state":"blue_box",'
+        '"answer":"blue_box"}\n\n'
+        "Demonstration 2: order 1 observed belief question\n\n"
+        "Story:\n"
+        "1 Alice and Bob entered the room.\n"
+        "2 The coin is in the red_box.\n"
+        "3 Alice left the room.\n"
+        "4 An automated system moved the coin to the blue_box while Bob watched.\n"
+        "5 Bob clearly observed this final move.\n\n"
+        "Question: Where does Bob think the coin is?\n"
+        "Choices: A. red_box, B. blue_box\n\n"
+        "Output:\n"
+        '{"tom_order":1,"belief_chain":["Bob"],"object":"coin",'
+        '"reasoning_mode":"belief","final_move_observed":true,'
+        '"nested_belief":"blue_box","answer":"blue_box"}\n\n'
+        "Demonstration 3: order 2 hidden belief question\n\n"
+        "Story:\n"
+        "1 Alice and Bob entered the room.\n"
+        "2 The key is in the red_box.\n"
+        "3 An automated system moved the key to the blue_box while Alice and Bob watched.\n"
+        "4 Alice and Bob left the room.\n"
+        "5 An automated system moved the key to the green_box in a sealed room.\n"
+        "6 Alice and Bob did not see, hear about, or infer this final move.\n\n"
+        "Question: Where does Alice think Bob thinks the key is?\n"
+        "Choices: A. red_box, B. blue_box, C. green_box\n\n"
+        "Output:\n"
+        '{"tom_order":2,"belief_chain":["Alice","Bob"],"object":"key",'
+        '"reasoning_mode":"belief","final_move_observed":false,'
+        '"nested_belief":"blue_box","answer":"blue_box"}'
+    )
     return (
-        f"{instruction}\n\nStory:\n{record['story'].rstrip()}\n\n"
+        f"{instruction}\n\n{demonstrations}\n\n"
+        f"Story:\n{record['story'].rstrip()}\n\n"
         f"Question: {record['question']}\nChoices: {record['choices']}"
         f"{source_note(record)}\n"
     )

@@ -66,15 +66,15 @@
   "input_files": {
     "train": {
       "path": "data/counterfactual_process_reward/train.jsonl",
-      "sha256": "d4d6eee027d0f4dd6c5ca67da535ec55d94fcaa6a86241d016dcc986a1b194cf"
+      "sha256": "45778e37380563792317ff1a349f74e18a951e748fe8f9c17bd40406693620d2"
     },
     "val": {
       "path": "data/counterfactual_process_reward/val.jsonl",
-      "sha256": "d003c90cf5eec747325489004a5a4f21f640414b19d6cc7a743cfda5ea866fac"
+      "sha256": "72a1e9ae0baa2330f841ea98251972570b99d38ab1f647fe8dd9f51a237d97af"
     },
     "test": {
       "path": "data/counterfactual_process_reward/test.jsonl",
-      "sha256": "bee6681aa1f86e21f20246a5e9332c1e17f4fcbc5e1b2556b8e68d1086cc60c1"
+      "sha256": "33fcc12cd849a25f2eda2836317bcd236570d82bfa3b888ffd3c9fafcc132fab"
     }
   },
   "split_counts": {
@@ -103,9 +103,9 @@
     "hidden": 2100
   },
   "output_sha256": {
-    "train": "2cb040838a2c45e69f9e77845b6e3adf8cf5dd301391c271eda36a928105b033",
-    "dev": "ea140c359ebbc1a76a7a9e77868555003ce5b3e5409df375f28783a0b9ecb26a",
-    "test": "13a60122310019b55498ce1303b3e1f2f0cfb0ee7c7cf075845d08a9a0b623d5"
+    "train": "64796b0b8bf53164a7f08194082a7d98c4c7a84dddbc237673c4d26198981411",
+    "dev": "4eb05e676bc73d8cdbdab102df0c1bf15dd5754fb9f67a531ceee4a98f7c974c",
+    "test": "970802ae40971324dba6ffa06b10f59768fd9c11f8a55b850f580151a7a58d8d"
   },
   "process_target_version": "1.0"
 }
