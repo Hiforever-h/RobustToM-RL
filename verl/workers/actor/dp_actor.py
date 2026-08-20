@@ -240,16 +240,21 @@ class DataParallelPPOActor(BasePPOActor):
                 advantages = data['advantages']
 
                 clip_ratio = self.config.clip_ratio
+                clip_ratio_low = self.config.get('clip_ratio_low', None)
+                clip_ratio_high = self.config.get('clip_ratio_high', None)
                 entropy_coeff = self.config.entropy_coeff
 
                 # all return: (bsz, response_length)
                 entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature)
 
-                pg_loss, pg_clipfrac, ppo_kl = core_algos.compute_policy_loss(old_log_prob=old_log_prob,
-                                                                              log_prob=log_prob,
-                                                                              advantages=advantages,
-                                                                              eos_mask=response_mask,
-                                                                              cliprange=clip_ratio)
+                pg_loss, pg_clipfrac, pg_clipfrac_low, pg_clipfrac_high, ppo_kl = \
+                    core_algos.compute_policy_loss(old_log_prob=old_log_prob,
+                                                   log_prob=log_prob,
+                                                   advantages=advantages,
+                                                   eos_mask=response_mask,
+                                                   cliprange=clip_ratio,
+                                                   cliprange_low=clip_ratio_low,
+                                                   cliprange_high=clip_ratio_high)
                 # compute entropy loss from entropy
                 entropy_loss = verl_F.masked_mean(entropy, response_mask)
 
@@ -275,6 +280,8 @@ class DataParallelPPOActor(BasePPOActor):
                     'actor/entropy_loss': entropy_loss.detach().item(),
                     'actor/pg_loss': pg_loss.detach().item(),
                     'actor/pg_clipfrac': pg_clipfrac.detach().item(),
+                    'actor/pg_clipfrac_low': pg_clipfrac_low.detach().item(),
+                    'actor/pg_clipfrac_high': pg_clipfrac_high.detach().item(),
                     'actor/ppo_kl': ppo_kl.detach().item(),
                 }
                 append_to_dict(metrics, data)

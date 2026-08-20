@@ -18,7 +18,7 @@ This trainer supports model-agonistic model initialization with huggingface
 """
 
 import os
-import uuid
+import random
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
@@ -296,25 +296,13 @@ def compute_timing_metrics(batch, timing_raw):
 def compute_reward_metrics(batch):
     reward_tensor = batch.batch['token_level_scores'].sum(-1)
 
-    reward_metrics = {}
-    reward_metrics["reward/mean"] = torch.mean(reward_tensor).detach().item()
-
-    # Calculate format_error ratio (value == -1)
-    # (-1) + (-2)
-    format_error = torch.sum(reward_tensor == -3).float() / reward_tensor.numel()
-    reward_metrics["reward/format_error_ratio"] = format_error.detach().item()
-
-    # Calculate wrong answer ratio (value == -1)
-    # 1 + (-2)
-    format_error = torch.sum(reward_tensor == -1).float() / reward_tensor.numel()
-    reward_metrics["reward/wrong_answer_ratio"] = format_error.detach().item()
-
-    # Calculate all_correct ratio (value == 3)
-    # (1) + (2)
-    all_correct = torch.sum(reward_tensor == 3).float() / reward_tensor.numel()
-    reward_metrics["reward/all_correct_ratio"] = all_correct.detach().item()
-
-    return reward_metrics
+    return {
+        "reward/mean": torch.mean(reward_tensor).detach().item(),
+        "reward/min": torch.min(reward_tensor).detach().item(),
+        "reward/max": torch.max(reward_tensor).detach().item(),
+        "reward/zero_rate": torch.mean(torch.eq(reward_tensor, 0).float()).detach().item(),
+        "reward/full_reward_rate": torch.mean(torch.eq(reward_tensor, 1).float()).detach().item(),
+    }
 
 
 @contextmanager
@@ -384,12 +372,16 @@ class RayPPOTrainer(object):
                                          prompt_key=self.config.data.prompt_key,
                                          max_prompt_length=self.config.data.max_prompt_length,
                                          filter_prompts=True,
+                                         apply_chat_template=self.config.data.get('apply_chat_template', False),
                                          return_raw_chat=self.config.data.get('return_raw_chat', False),
                                          truncation='error')
+        train_generator = torch.Generator()
+        train_generator.manual_seed(int(self.config.data.get('seed', self.config.trainer.get('seed', 1))))
         self.train_dataloader = DataLoader(dataset=self.train_dataset,
                                            batch_size=self.config.data.train_batch_size,
                                            shuffle=True,
                                            drop_last=True,
+                                           generator=train_generator,
                                            collate_fn=collate_fn)
 
         self.val_dataset = RLHFDataset(parquet_files=self.config.data.val_files,
@@ -397,12 +389,13 @@ class RayPPOTrainer(object):
                                        prompt_key=self.config.data.prompt_key,
                                        max_prompt_length=self.config.data.max_prompt_length,
                                        filter_prompts=True,
+                                       apply_chat_template=self.config.data.get('apply_chat_template', False),
                                        return_raw_chat=self.config.data.get('return_raw_chat', False),
                                        truncation='error')
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
-                                         batch_size=len(self.val_dataset),
-                                         shuffle=True,
-                                         drop_last=True,
+                                         batch_size=self.config.data.val_batch_size,
+                                         shuffle=False,
+                                         drop_last=False,
                                          collate_fn=collate_fn)
 
         assert len(self.train_dataloader) >= 1
@@ -414,8 +407,13 @@ class RayPPOTrainer(object):
         # inject total_training_steps to actor/critic optim_config. This is hacky.
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
 
+        available_training_steps = total_training_steps
         if self.config.trainer.total_training_steps is not None:
             total_training_steps = self.config.trainer.total_training_steps
+        if total_training_steps > available_training_steps:
+            raise ValueError(
+                f'Requested {total_training_steps} training steps, but only '
+                f'{available_training_steps} batches are available across all epochs')
 
         self.total_training_steps = total_training_steps
         print(f'Total training steps: {self.total_training_steps}')
@@ -428,6 +426,7 @@ class RayPPOTrainer(object):
     def _validate(self):
         reward_tensor_lst = []
         data_source_lst = []
+        validation_records = []
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
             # test_batch = test_batch.to('cuda')
@@ -460,6 +459,11 @@ class RayPPOTrainer(object):
             print(f'[Validate] {test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0])} batch rewards: {reward_tensor.shape}')
             reward_tensor_lst.append(reward_tensor)
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
+            if hasattr(self.val_reward_fn, 'last_records'):
+                validation_records.extend(self.val_reward_fn.last_records)
+
+        if validation_records and hasattr(self.val_reward_fn, 'validation_metrics'):
+            return self.val_reward_fn.validation_metrics(validation_records)
 
         reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
         data_sources = np.concatenate(data_source_lst, axis=0)
@@ -473,14 +477,8 @@ class RayPPOTrainer(object):
 
         metric_dict = {}
         for data_source, rewards in data_source_reward.items():
-            count_equal_3 = sum(1 for reward in rewards if reward == 3)
             total_count = len(rewards)
-            print(f'[Validate] {data_source} count_equal_3: {count_equal_3}, total_count: {total_count}')
-            metric_dict[f'val/test_score/{data_source}'] = count_equal_3 / total_count if total_count > 0 else 0
-            # count_equal_2 = sum(1 for reward in rewards if reward == 2)
-            # total_count = len(rewards)
-            # print(f'[Validate] {data_source} count_equal_2: {count_equal_2}, total_count: {total_count}')
-            # metric_dict[f'val/test_score/{data_source}'] = count_equal_2 / total_count if total_count > 0 else 0
+            metric_dict[f'val/reward_mean/{data_source}'] = sum(rewards) / total_count if total_count else 0
 
         return metric_dict
 
@@ -563,7 +561,20 @@ class RayPPOTrainer(object):
                                         f'global_step_{self.global_steps}')
         actor_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
             self.config.trainer.default_hdfs_dir, 'actor')
-        self.actor_rollout_wg.save_checkpoint(actor_local_path, actor_remote_path)
+        self.actor_rollout_wg.save_checkpoint(
+            actor_local_path,
+            actor_remote_path,
+            global_step=self.global_steps,
+        )
+        os.makedirs(actor_local_path, exist_ok=True)
+        torch.save({
+            'global_step': int(self.global_steps),
+            'reference_model_path': str(self.config.actor_rollout_ref.ref.get(
+                'model_path', self.config.actor_rollout_ref.model.path)),
+            'python_rng_state': random.getstate(),
+            'numpy_rng_state': np.random.get_state(),
+            'torch_rng_state': torch.get_rng_state(),
+        }, os.path.join(actor_local_path, 'trainer_state.pt'))
 
         if self.use_critic:
             critic_local_path = os.path.join(self.config.trainer.default_local_dir, 'critic',
@@ -571,6 +582,25 @@ class RayPPOTrainer(object):
             critic_remote_path = None if self.config.trainer.default_hdfs_dir is None else os.path.join(
                 self.config.trainer.default_hdfs_dir, 'critic')
             self.critic_wg.save_checkpoint(critic_local_path, critic_remote_path)
+
+    def load_checkpoint(self, actor_local_path):
+        state_path = os.path.join(actor_local_path, 'trainer_state.pt')
+        if not os.path.isfile(state_path):
+            raise FileNotFoundError(f'Missing trainer state: {state_path}')
+        state = torch.load(state_path, map_location='cpu', weights_only=False)
+        expected_reference = str(self.config.actor_rollout_ref.ref.get(
+            'model_path', self.config.actor_rollout_ref.model.path))
+        if state['reference_model_path'] != expected_reference:
+            raise ValueError(
+                f"Reference checkpoint mismatch: {state['reference_model_path']} != {expected_reference}")
+        worker_steps = self.actor_rollout_wg.load_checkpoint(actor_local_path)
+        if any(int(step) != int(state['global_step']) for step in worker_steps):
+            raise ValueError(f'Worker checkpoint steps disagree with driver state: {worker_steps}')
+        self.global_steps = int(state['global_step'])
+        random.setstate(state['python_rng_state'])
+        np.random.set_state(state['numpy_rng_state'])
+        torch.set_rng_state(state['torch_rng_state'])
+        print(f'Resuming from global step {self.global_steps}: {actor_local_path}')
 
     def _balance_batch(self, batch: DataProto, metrics, logging_prefix='global_seqlen'):
         """Reorder the data on single controller such that each dp rank gets similar total tokens"""
@@ -603,23 +633,34 @@ class RayPPOTrainer(object):
                           default_backend=self.config.trainer.logger,
                           config=OmegaConf.to_container(self.config, resolve=True))
 
-        self.global_steps = 0
+        self.global_steps = getattr(self, 'global_steps', 0)
 
-        # perform validation before training
         # currently, we only support validation using the reward_function.
-        if self.val_reward_fn is not None and self.config.trainer.get('val_before_train', True):
+        if self.config.trainer.get('val_only', False):
+            if self.val_reward_fn is None:
+                raise ValueError('trainer.val_only requires a validation reward function')
+            val_metrics = self._validate()
+            pprint(f'Validation metrics: {val_metrics}')
+            logger.log(data=val_metrics, step=self.global_steps)
+            return
+
+        # A resumed run starts from the RNG state saved after its last validation.
+        if self.global_steps == 0 and self.val_reward_fn is not None and \
+                self.config.trainer.get('val_before_train', True):
             val_metrics = self._validate()
             pprint(f'Initial validation metrics: {val_metrics}')
             logger.log(data=val_metrics, step=self.global_steps)
-            if self.config.trainer.get('val_only', False):
-                return
 
-        # we start from step 1
-        self.global_steps += 1
-
+        scheduled_step = 0
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
-                print(f'epoch {epoch}, step {self.global_steps}')
+                scheduled_step += 1
+                if scheduled_step <= self.global_steps:
+                    continue
+                if self.global_steps >= self.total_training_steps:
+                    return
+                current_step = scheduled_step
+                print(f'epoch {epoch}, step {current_step}')
                 metrics = {}
                 timing_raw = {}
 
@@ -633,8 +674,9 @@ class RayPPOTrainer(object):
                     with _timer('gen', timing_raw):
                         gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
 
-                    batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
-                                                             dtype=object)
+                    batch.non_tensor_batch['uid'] = np.array(
+                        [f'{current_step}:{index}' for index in range(len(batch.batch))],
+                        dtype=object)
                     # repeat to align with repeated responses in rollout
                     batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
                     batch = batch.union(gen_batch_output)
@@ -671,6 +713,16 @@ class RayPPOTrainer(object):
                         # we combine with rule-based rm
                         reward_tensor = self.reward_fn(batch)
                         batch.batch['token_level_scores'] = reward_tensor
+                        if hasattr(self.reward_fn, 'last_metrics'):
+                            metrics.update(self.reward_fn.last_metrics(prefix='reward'))
+                        if self.config.algorithm.adv_estimator == 'grpo':
+                            from grpo.metrics import summarize_group_rewards
+                            sequence_scores = reward_tensor.sum(-1).detach().cpu().tolist()
+                            metrics.update(summarize_group_rewards(
+                                sequence_scores,
+                                batch.non_tensor_batch['uid'],
+                                expected_group_size=self.config.actor_rollout_ref.rollout.n,
+                            ))
 
                         # compute rewards. apply_kl_penalty if available
                         if not self.config.actor_rollout_ref.actor.use_kl_loss:
@@ -696,7 +748,7 @@ class RayPPOTrainer(object):
                         metrics.update(critic_output_metrics)
 
                     # implement critic warmup
-                    if self.config.trainer.critic_warmup <= self.global_steps:
+                    if self.config.trainer.critic_warmup <= current_step:
                         # update actor
                         with _timer('update_actor', timing_raw):
                             actor_output = self.actor_rollout_wg.update_actor(batch)
@@ -707,17 +759,23 @@ class RayPPOTrainer(object):
                     reward_metrics = compute_reward_metrics(batch)
                     metrics.update(reward_metrics)
 
+                    self.global_steps = current_step
+                    checkpoint_saved = False
+                    validation_performed = False
+
                     # validate
                     if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and \
-                        self.global_steps % self.config.trainer.test_freq == 0:
+                        current_step % self.config.trainer.test_freq == 0:
                         with _timer('testing', timing_raw):
                             val_metrics: dict = self._validate()
                         metrics.update(val_metrics)
+                        validation_performed = True
 
                     if self.config.trainer.save_freq > 0 and \
-                            self.global_steps % self.config.trainer.save_freq == 0:
+                            current_step % self.config.trainer.save_freq == 0:
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
+                        checkpoint_saved = True
 
 
                 # collect metrics
@@ -725,20 +783,19 @@ class RayPPOTrainer(object):
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
 
                 # TODO: make a canonical logger that supports various backend
-                logger.log(data=metrics, step=self.global_steps)
+                logger.log(data=metrics, step=current_step)
 
-                self.global_steps += 1
-
-
-                if self.global_steps >= self.total_training_steps:
-                    # 在所有训练步骤结束时保存最后一个检查点
-                    with _timer('save_checkpoint', timing_raw):
-                        self._save_checkpoint()
-                    # 执行验证
-                    if self.val_reward_fn is not None:
+                if current_step >= self.total_training_steps:
+                    if not checkpoint_saved and self.config.trainer.get('save_at_end', True):
+                        with _timer('save_checkpoint', timing_raw):
+                            self._save_checkpoint()
+                    if self.val_reward_fn is not None and not validation_performed and \
+                            self.config.trainer.get('validate_at_end', True):
                         val_metrics = self._validate()
                         pprint(f'Final validation metrics: {val_metrics}')
-                        logger.log(data=val_metrics, step=self.global_steps)
+                        logger.log(data=val_metrics, step=current_step)
                     return
 
-    
+        if self.global_steps != self.total_training_steps:
+            raise RuntimeError(
+                f'Training ended at step {self.global_steps}, expected {self.total_training_steps}')

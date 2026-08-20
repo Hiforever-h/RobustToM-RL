@@ -68,6 +68,7 @@ class RLHFDataset(Dataset):
                  filter_prompts=True,
                  cache_dir='~/.cache/verl/rlhf',
                  chat_template_func=None,
+                 apply_chat_template=False,
                  return_raw_chat=False,
                  truncation='error'):
         if not isinstance(parquet_files, (List, ListConfig)):
@@ -83,6 +84,7 @@ class RLHFDataset(Dataset):
 
         self.return_raw_chat = return_raw_chat
         self.chat_template_func = chat_template_func
+        self.apply_chat_template = apply_chat_template
         self.truncation = truncation
 
         self._download()
@@ -125,8 +127,16 @@ class RLHFDataset(Dataset):
 
         chat = row_dict.pop(self.prompt_key)
 
-        prompt_with_chat_template = chat[0]['content']
-        # prompt_with_chat_template = chat
+        if hasattr(chat, 'tolist'):
+            chat = chat.tolist()
+        if self.apply_chat_template:
+            prompt_with_chat_template = self.tokenizer.apply_chat_template(
+                chat,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            prompt_with_chat_template = chat[0]['content']
 
         input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
                                                                          tokenizer=self.tokenizer,
@@ -143,7 +153,7 @@ class RLHFDataset(Dataset):
 
         # encode prompts without chat template
         if self.return_raw_chat:
-            row_dict['raw_prompt'] = chat.tolist()
+            row_dict['raw_prompt'] = chat
 
         # add index for each prompt
         index = row_dict.get("extra_info", {}).get("index", 0)

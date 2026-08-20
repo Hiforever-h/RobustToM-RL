@@ -128,35 +128,29 @@ def compute_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
             shape: (bs, response_length)
     """
     response_length = token_level_rewards.shape[-1]
-    non_zero_mask = (token_level_rewards != 0)
-    scores = (token_level_rewards * non_zero_mask).sum(dim=-1)
-
-    id2score = defaultdict(list)
-    id2mean = {}
-    id2std = {}
+    sequence_scores = token_level_rewards.sum(dim=-1)
+    grouped_indices = defaultdict(list)
+    for position, group_id in enumerate(index):
+        grouped_indices[str(group_id)].append(position)
 
     with torch.no_grad():
-        bsz = scores.shape[0]
-        for i in range(bsz):
-            id2score[index[i]].append(scores[i])
-
-        print(f'[GRPO group rewards]\n{np.array([np.stack([tensor.numpy() for tensor in value]) for value in id2score.values()])}')
-
-        for idx in id2score:
-            if len(id2score[idx]) == 1:
-                id2mean[idx] = torch.tensor(0.0)
-                id2std[idx] = torch.tensor(1.0)
-            elif len(id2score[idx]) > 1:
-                id2mean[idx] = torch.mean(torch.tensor(id2score[idx]))
-                id2std[idx] = torch.std(torch.tensor([id2score[idx]]))
+        normalized_scores = torch.zeros_like(sequence_scores)
+        for positions in grouped_indices.values():
+            position_tensor = torch.tensor(
+                positions,
+                dtype=torch.long,
+                device=sequence_scores.device,
+            )
+            group_scores = sequence_scores.index_select(0, position_tensor)
+            group_std = group_scores.std(unbiased=False)
+            if group_std <= epsilon:
+                normalized = torch.zeros_like(group_scores)
             else:
-                raise ValueError(f"no score in prompt index: {idx}")
-        for i in range(bsz):
-            scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
-        scores = scores.unsqueeze(-1).tile([1, response_length]) * eos_mask
-        
-    
-    return scores, scores
+                normalized = (group_scores - group_scores.mean()) / (group_std + epsilon)
+            normalized_scores.index_copy_(0, position_tensor, normalized)
+        advantages = normalized_scores.unsqueeze(-1).expand(-1, response_length) * eos_mask
+
+    return advantages, advantages
 
 
 def compute_reinforce_plus_plus_outcome_advantage(token_level_rewards: torch.Tensor,
@@ -201,7 +195,15 @@ def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
     return token_level_scores - kl * kl_ratio
 
 
-def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange):
+def compute_policy_loss(
+    old_log_prob,
+    log_prob,
+    advantages,
+    eos_mask,
+    cliprange=None,
+    cliprange_low=None,
+    cliprange_high=None,
+):
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
 
     Args:
@@ -214,7 +216,11 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange)
         eos_mask: `(torch.Tensor)`
             shape: (bs, response_length)
         cliprange: (float)
-            The clip range used in PPO. See https://arxiv.org/abs/1707.06347
+            Backward-compatible symmetric clip range.
+        cliprange_low: (float)
+            Distance below one for the lower ratio bound.
+        cliprange_high: (float)
+            Distance above one for the upper ratio bound.
 
     Returns:
         pg_loss: `a scalar torch.Tensor`
@@ -223,16 +229,31 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange)
             a float number indicating the fraction of policy gradient loss being clipped
 
     """
+    if cliprange_low is None:
+        cliprange_low = cliprange
+    if cliprange_high is None:
+        cliprange_high = cliprange
+    if cliprange_low is None or cliprange_high is None:
+        raise ValueError("PPO clip ranges must be configured")
+    if cliprange_low < 0 or cliprange_high < 0:
+        raise ValueError("PPO clip ranges must be non-negative")
+
     negative_approx_kl = log_prob - old_log_prob
     ratio = torch.exp(negative_approx_kl)
     ppo_kl = verl_F.masked_mean(-negative_approx_kl, eos_mask)
 
     pg_losses = -advantages * ratio
-    pg_losses2 = -advantages * torch.clamp(ratio, 1.0 - cliprange, 1.0 + cliprange)
+    pg_losses2 = -advantages * torch.clamp(
+        ratio,
+        1.0 - cliprange_low,
+        1.0 + cliprange_high,
+    )
 
     pg_loss = verl_F.masked_mean(torch.max(pg_losses, pg_losses2), eos_mask)
     pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses).float(), eos_mask)
-    return pg_loss, pg_clipfrac, ppo_kl
+    pg_clipfrac_low = verl_F.masked_mean(torch.lt(ratio, 1.0 - cliprange_low).float(), eos_mask)
+    pg_clipfrac_high = verl_F.masked_mean(torch.gt(ratio, 1.0 + cliprange_high).float(), eos_mask)
+    return pg_loss, pg_clipfrac, pg_clipfrac_low, pg_clipfrac_high, ppo_kl
 
 
 def compute_entropy_loss(logits, eos_mask):
@@ -313,5 +334,4 @@ def kl_penalty(logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor, kl_pe
         raise NotImplementedError
 
     raise NotImplementedError
-
 

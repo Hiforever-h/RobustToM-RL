@@ -38,7 +38,8 @@ class FSDPVLLMShardingManager(BaseShardingManager):
                  inference_engine: LLM,
                  model_config,
                  full_params: bool = False,
-                 device_mesh: DeviceMesh = None):
+                 device_mesh: DeviceMesh = None,
+                 seed: int = 0):
         self.module = module
         self.inference_engine = inference_engine
         self.model_config = model_config
@@ -60,7 +61,7 @@ class FSDPVLLMShardingManager(BaseShardingManager):
         # get a random rng states
         if self.device_mesh is not None:
             gen_dp_rank = self.device_mesh['dp'].get_local_rank()
-            torch.cuda.manual_seed(gen_dp_rank + 1000)  # make sure all tp ranks have the same random states
+            torch.cuda.manual_seed(gen_dp_rank + seed)  # make sure all tp ranks have the same random states
             self.gen_random_states = torch.cuda.get_rng_state()
             torch.cuda.set_rng_state(self.torch_random_states)
         else:

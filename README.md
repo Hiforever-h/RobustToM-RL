@@ -29,13 +29,14 @@
 ## Installation
 
 ```bash
-conda create -n tom python=3.10
-conda activate tom
-pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cu121
-pip3 install vllm==0.6.3 ray
-pip3 install flash-attn --no-build-isolation
-pip install -e .  # For verl integration
-pip install wandb IPython matplotlib
+conda create -n robusttom-grpo python=3.10 -y
+conda activate robusttom-grpo
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cu121
+python -m pip install -r requirements.txt
+python -m pip install flash-attn==2.7.0.post2 --no-build-isolation
+python -m pip install -e . --no-deps
+wandb login
 ```
 
 ## Data Preparation
@@ -68,8 +69,8 @@ python generate_prompts.py
 ## Training
 
 ```bash
-conda activate tom
-bash tom_grpo.sh  # 4×A100 80G
+conda activate robusttom-grpo
+bash tom_grpo.sh  # 1 x A800 80G
 ```
 
 ## Evaluation

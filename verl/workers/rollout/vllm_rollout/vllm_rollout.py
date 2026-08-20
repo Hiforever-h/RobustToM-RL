@@ -93,6 +93,7 @@ class vLLMRollout(BaseRollout):
                                     model_hf_config=model_hf_config,
                                     tensor_parallel_size=tensor_parallel_size,
                                     dtype=config.dtype,
+                                    seed=config.get('seed', 0),
                                     enforce_eager=config.enforce_eager,
                                     gpu_memory_utilization=config.gpu_memory_utilization,
                                     skip_tokenizer_init=False,

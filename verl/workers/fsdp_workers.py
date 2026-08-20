@@ -17,8 +17,10 @@ The main entry point to run the PPO algorithm
 
 import logging
 import os
+import random
 import warnings
 
+import numpy as np
 import torch
 import torch.distributed
 import verl.utils.hdfs_io as hdfs_io
@@ -57,6 +59,12 @@ class ActorRolloutRefWorker(Worker):
         if not torch.distributed.is_initialized():
             torch.distributed.init_process_group(backend="nccl")
 
+        seed = int(self.config.rollout.get('seed', 0)) + torch.distributed.get_rank()
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+
         # build device mesh for FSDP
         world_size = torch.distributed.get_world_size()
         from torch.distributed.device_mesh import init_device_mesh
@@ -92,21 +100,26 @@ class ActorRolloutRefWorker(Worker):
             # TODO: it seems that manual offload is slowly than FSDP offload
             self._is_offload_param = self.config.ref.fsdp_config.get('param_offload', False)
 
-        # normalize config
+        # Legacy configs express batch sizes before rollout expansion. RobustToM
+        # uses explicit trajectory counts so micro-batches remain memory bounded.
+        trajectory_batch_sizes = self.config.get('use_trajectory_batch_sizes', False)
         if self._is_actor:
             self.config.actor.ppo_mini_batch_size //= (self.device_mesh.shape[0] // self.ulysses_sequence_parallel_size)
             self.config.actor.ppo_micro_batch_size //= (self.device_mesh.shape[0] //
                                                         self.ulysses_sequence_parallel_size)
-            self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
-            self.config.actor.ppo_micro_batch_size *= self.config.rollout.n
+            if not trajectory_batch_sizes:
+                self.config.actor.ppo_mini_batch_size *= self.config.rollout.n
+                self.config.actor.ppo_micro_batch_size *= self.config.rollout.n
         if self._is_rollout:
             self.config.rollout.log_prob_micro_batch_size //= (self.device_mesh.shape[0] //
                                                                self.ulysses_sequence_parallel_size)
-            self.config.rollout.log_prob_micro_batch_size *= self.config.rollout.n
+            if not trajectory_batch_sizes:
+                self.config.rollout.log_prob_micro_batch_size *= self.config.rollout.n
         if self._is_ref:
             self.config.ref.log_prob_micro_batch_size //= (self.device_mesh.shape[0] //
                                                            self.ulysses_sequence_parallel_size)
-            self.config.ref.log_prob_micro_batch_size *= self.config.rollout.n
+            if not trajectory_batch_sizes:
+                self.config.ref.log_prob_micro_batch_size *= self.config.rollout.n
 
     def _build_model_optimizer(self,
                                model_path,
@@ -276,7 +289,8 @@ class ActorRolloutRefWorker(Worker):
                                                                inference_engine=rollout.inference_engine,
                                                                model_config=self.actor_model_config,
                                                                full_params='hf' in self.config.rollout.load_format,
-                                                               device_mesh=rollout_device_mesh)
+                                                               device_mesh=rollout_device_mesh,
+                                                               seed=self.config.rollout.get('seed', 0))
             log_gpu_memory_usage('After building sharding manager', logger=None)
 
         return rollout, rollout_sharding_manager
@@ -332,7 +346,8 @@ class ActorRolloutRefWorker(Worker):
             self.rollout, self.rollout_sharding_manager = self._build_rollout()
 
         if self._is_ref:
-            self.ref_module_fsdp = self._build_model_optimizer(model_path=self.config.model.path,
+            ref_model_path = self.config.ref.get('model_path', self.config.model.path)
+            self.ref_module_fsdp = self._build_model_optimizer(model_path=ref_model_path,
                                                                fsdp_config=self.config.ref.fsdp_config,
                                                                optim_config=None,
                                                                override_model_config=override_model_config,
@@ -475,7 +490,7 @@ class ActorRolloutRefWorker(Worker):
         return output
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
-    def save_checkpoint(self, local_path, hdfs_path=None):
+    def save_checkpoint(self, local_path, hdfs_path=None, global_step=0):
         assert self._is_actor
         import torch
         if self._is_offload_param:
@@ -494,6 +509,14 @@ class ActorRolloutRefWorker(Worker):
             os.makedirs(local_path, exist_ok=True)
             self.actor_module.save_pretrained(local_path, state_dict=state_dict)
             self.tokenizer.save_pretrained(local_path)
+            torch.save({
+                'global_step': int(global_step),
+                'optimizer': self.actor_optimizer.state_dict(),
+                'lr_scheduler': self.actor_lr_scheduler.state_dict(),
+                'torch_rng_state': torch.get_rng_state(),
+                'cuda_rng_state': torch.cuda.get_rng_state(),
+                'rollout_cuda_rng_state': self.rollout_sharding_manager.gen_random_states,
+            }, os.path.join(local_path, 'worker_state.pt'))
             if hdfs_path is not None:
                 print(f'Uploading actor checkpoint to {hdfs_path}')
                 hdfs_io.makedirs(hdfs_path, exist_ok=True)
@@ -502,6 +525,20 @@ class ActorRolloutRefWorker(Worker):
         torch.distributed.barrier()
         if self._is_offload_param:
             offload_fsdp_param_and_grad(module=self.actor_module_fsdp, offload_grad=self._is_offload_grad)
+
+    @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+    def load_checkpoint(self, local_path):
+        assert self._is_actor
+        state_path = os.path.join(local_path, 'worker_state.pt')
+        if not os.path.isfile(state_path):
+            raise FileNotFoundError(f'Missing worker state: {state_path}')
+        state = torch.load(state_path, map_location='cpu', weights_only=False)
+        self.actor_optimizer.load_state_dict(state['optimizer'])
+        self.actor_lr_scheduler.load_state_dict(state['lr_scheduler'])
+        torch.set_rng_state(state['torch_rng_state'])
+        torch.cuda.set_rng_state(state['cuda_rng_state'])
+        self.rollout_sharding_manager.gen_random_states = state['rollout_cuda_rng_state']
+        return int(state['global_step'])
 
 
 class CriticWorker(Worker):
