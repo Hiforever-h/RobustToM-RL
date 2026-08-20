@@ -102,6 +102,7 @@ trainer:
   project_name: robust_tom_grpo_v3
   experiment_name: qwen25_3b_rft_grpo_n16_seed2026
   logger: [console, wandb]
+  progress_bar: true
   nnodes: 1
   n_gpus_per_node: 1
   save_freq: 400

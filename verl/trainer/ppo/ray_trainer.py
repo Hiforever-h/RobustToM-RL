@@ -632,6 +632,26 @@ class RayPPOTrainer(object):
                           experiment_name=self.config.trainer.experiment_name,
                           default_backend=self.config.trainer.logger,
                           config=OmegaConf.to_container(self.config, resolve=True))
+        progress_bar_enabled = bool(self.config.trainer.get('progress_bar', False))
+        remote_loggers = ['wandb', 'mlflow']
+
+        def log_metrics(data, step):
+            # A tqdm bar is the console logger for progress-enabled runs. Keep the
+            # complete metric set in remote trackers without printing one huge line.
+            logger.log(data=data,
+                       step=step,
+                       backend=remote_loggers if progress_bar_enabled else None)
+
+        def validation_summary(label, metrics):
+            reward = metrics.get('val/overall/mean_process_reward')
+            answer = metrics.get('val/overall/answer_accuracy')
+            trace = metrics.get('val/overall/core_state_accuracy')
+            full = metrics.get('val/overall/full_reward_rate')
+            values = (reward, answer, trace, full)
+            if any(value is None for value in values):
+                return f'{label}: {metrics}'
+            return (f'{label}: reward={reward:.3f}, answer={answer:.3f}, '
+                    f'trace={trace:.3f}, full={full:.3f}')
 
         self.global_steps = getattr(self, 'global_steps', 0)
 
@@ -648,8 +668,22 @@ class RayPPOTrainer(object):
         if self.global_steps == 0 and self.val_reward_fn is not None and \
                 self.config.trainer.get('val_before_train', True):
             val_metrics = self._validate()
-            pprint(f'Initial validation metrics: {val_metrics}')
-            logger.log(data=val_metrics, step=self.global_steps)
+            if progress_bar_enabled:
+                print(validation_summary('Initial validation', val_metrics), flush=True)
+            else:
+                pprint(f'Initial validation metrics: {val_metrics}')
+            log_metrics(data=val_metrics, step=self.global_steps)
+
+        progress_bar = None
+        if progress_bar_enabled:
+            from tqdm.auto import tqdm
+
+            progress_bar = tqdm(total=self.total_training_steps,
+                                initial=self.global_steps,
+                                desc='GRPO training',
+                                unit='step',
+                                dynamic_ncols=True,
+                                mininterval=0.5)
 
         scheduled_step = 0
         for epoch in range(self.config.trainer.total_epochs):
@@ -658,9 +692,12 @@ class RayPPOTrainer(object):
                 if scheduled_step <= self.global_steps:
                     continue
                 if self.global_steps >= self.total_training_steps:
+                    if progress_bar is not None:
+                        progress_bar.close()
                     return
                 current_step = scheduled_step
-                print(f'epoch {epoch}, step {current_step}')
+                if progress_bar is None:
+                    print(f'epoch {epoch}, step {current_step}')
                 metrics = {}
                 timing_raw = {}
 
@@ -783,7 +820,17 @@ class RayPPOTrainer(object):
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
 
                 # TODO: make a canonical logger that supports various backend
-                logger.log(data=metrics, step=current_step)
+                log_metrics(data=metrics, step=current_step)
+                if progress_bar is not None:
+                    progress_bar.set_postfix(
+                        reward=f"{metrics.get('reward/mean', 0.0):.3f}",
+                        trace=f"{metrics.get('reward/belief_trace_accuracy', 0.0):.3f}",
+                        full=f"{metrics.get('reward/full_reward_rate', 0.0):.3f}",
+                        gen=f"{metrics.get('timing_s/gen', 0.0):.1f}s",
+                        update=f"{metrics.get('timing_s/update_actor', 0.0):.1f}s",
+                        refresh=False,
+                    )
+                    progress_bar.update(current_step - progress_bar.n)
 
                 if current_step >= self.total_training_steps:
                     if not checkpoint_saved and self.config.trainer.get('save_at_end', True):
@@ -792,10 +839,17 @@ class RayPPOTrainer(object):
                     if self.val_reward_fn is not None and not validation_performed and \
                             self.config.trainer.get('validate_at_end', True):
                         val_metrics = self._validate()
-                        pprint(f'Final validation metrics: {val_metrics}')
-                        logger.log(data=val_metrics, step=current_step)
+                        if progress_bar is not None:
+                            progress_bar.write(validation_summary('Final validation', val_metrics))
+                        else:
+                            pprint(f'Final validation metrics: {val_metrics}')
+                        log_metrics(data=val_metrics, step=current_step)
+                    if progress_bar is not None:
+                        progress_bar.close()
                     return
 
+        if progress_bar is not None:
+            progress_bar.close()
         if self.global_steps != self.total_training_steps:
             raise RuntimeError(
                 f'Training ended at step {self.global_steps}, expected {self.total_training_steps}')

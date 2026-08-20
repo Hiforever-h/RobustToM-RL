@@ -105,6 +105,7 @@ class GrpoConfigTest(unittest.TestCase):
         self.assertEqual(trainer["total_epochs"], 2)
         self.assertEqual(trainer["total_training_steps"], 800)
         self.assertEqual(trainer["logger"], ["console", "wandb"])
+        self.assertTrue(trainer["progress_bar"])
         self.assertEqual((3200 // data["train_batch_size"]) * trainer["total_epochs"], 800)
 
 
