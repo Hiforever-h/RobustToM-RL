@@ -72,9 +72,40 @@ class RejectionTest(unittest.TestCase):
         candidate = {**record, "raw_response": json.dumps(record["process_target"]), "generation_reached_eos": True}
         scored, _ = score_candidates([candidate])
         output, manifest = build_dataset(scored, min_samples=0)
-        self.assertEqual(output, [])
-        self.assertEqual(manifest["final_sample_count"], 0)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(manifest["final_sample_count"], 1)
         self.assertEqual(manifest["incomplete_pair_count"], 1)
+
+        pair_output, pair_manifest = build_dataset(
+            scored, min_samples=0, require_complete_pairs=True
+        )
+        self.assertEqual(pair_output, [])
+        self.assertEqual(pair_manifest["final_sample_count"], 0)
+
+    def test_default_keeps_multiple_full_reward_trajectories(self):
+        target = make_target(0, [], "linen chest", True)
+        rows = []
+        for index in range(3):
+            rows.append(
+                {
+                    "global_sample_id": "sample-1",
+                    "global_pair_id": "pair-1",
+                    "process_prompt": "Return JSON.",
+                    "process_target": target,
+                    "source_dataset": "hi-tom",
+                    "question_order": 0,
+                    "intervention_type": "observed",
+                    "candidate_id": f"candidate-{index}",
+                    "raw_response": json.dumps(target, separators=(",", ":")),
+                    "generation_reached_eos": True,
+                    "candidate_index": index,
+                    "token_count": 20 + index,
+                }
+            )
+        scored, _ = score_candidates(rows)
+        output, manifest = build_dataset(scored, min_samples=3, max_samples=3)
+        self.assertEqual(len(output), 3)
+        self.assertEqual(manifest["selected_prompt_count"], 1)
 
 
 if __name__ == "__main__":

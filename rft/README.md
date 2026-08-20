@@ -15,8 +15,10 @@ used as a training completion.
    and the accepted response plus one EOS are trainable.
 6. `generate` and `evaluate` report process, pair and shortcut-conflict metrics.
 
-The current implementation requires 1,000 to 3,000 final accepted samples by
-default. It never falls back to gold/canonical responses when coverage is low.
+The dataset builder keeps every full-reward response by default and does not
+require observed/hidden pairs. It never falls back to gold/canonical responses
+when coverage is low. Use `--require-complete-pairs` only for the stricter
+pair-balanced ablation.
 
 ## Environment
 
@@ -94,15 +96,16 @@ python -m rft.score_candidates \
 python -m rft.build_dataset \
   --scored "runs/rft_sampling/${RUN_ID}/scored.jsonl" \
   --output "data/rft/accepted/${RUN_ID}/train.jsonl" \
-  --min-samples 1000 \
+  --min-samples 0 \
   --max-samples 3000 \
   --seed 2026
 ```
 
 Only responses with process reward `1.0`, strict JSON format and a normal EOS
-are accepted. At most one response per prompt is retained, and only complete
-observed/hidden pairs enter the training set. The builder stops if fewer than
-1,000 samples survive; it never fills the gap with canonical responses.
+are accepted. By default all accepted trajectories are retained, up to
+`--max-samples`; observed and hidden sides may be incomplete. Add
+`--deduplicate-semantic` to collapse equivalent JSON responses, or add
+`--require-complete-pairs` for the previous pair-balanced behavior.
 
 ## Train
 
