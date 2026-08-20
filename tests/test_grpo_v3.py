@@ -37,6 +37,12 @@ class GrpoPromptAndDataTest(unittest.TestCase):
         cls.derived_by_id = {row["global_sample_id"]: row for row in cls.derived}
 
     def test_prompt_matches_existing_few_shot_augmentation_plus_instruction(self):
+        import scripts
+
+        self.assertEqual(
+            Path(scripts.__file__).resolve(),
+            (ROOT / "scripts/__init__.py").resolve(),
+        )
         actual = build_grpo_prompt(self.raw["process_prompt"])
         without_clarification = actual.replace(f" {ORDER_TRACE_INSTRUCTION}", "", 1)
         expected = self.derived_by_id[self.raw["global_sample_id"]]["process_prompt"]
