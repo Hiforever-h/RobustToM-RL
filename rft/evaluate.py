@@ -32,6 +32,62 @@ def _answer(prediction: dict[str, Any] | None) -> str | None:
     return normalize(prediction["answer"])
 
 
+def _unique_rows_by_sample(
+    rows: Iterable[dict[str, Any]], source_name: str
+) -> dict[str, dict[str, Any]]:
+    indexed: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        sample_id = row.get("global_sample_id")
+        if not isinstance(sample_id, str) or not sample_id:
+            raise ValueError(f"Missing global_sample_id in {source_name}")
+        if sample_id in indexed:
+            raise ValueError(f"Duplicate global_sample_id in {source_name}: {sample_id}")
+        indexed[sample_id] = row
+    return indexed
+
+
+def evaluate_answer_predictions(
+    prediction_rows: list[dict[str, Any]], data_rows: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Score only the final JSON answer against a separately loaded gold label."""
+    predictions = _unique_rows_by_sample(prediction_rows, "predictions")
+    data = _unique_rows_by_sample(data_rows, "data")
+    prediction_ids = set(predictions)
+    data_ids = set(data)
+    if prediction_ids != data_ids:
+        missing = sorted(data_ids - prediction_ids)
+        unexpected = sorted(prediction_ids - data_ids)
+        raise ValueError(
+            "Prediction/data sample IDs differ: "
+            f"missing={missing[:5]}, unexpected={unexpected[:5]}"
+        )
+
+    correct_count = 0
+    for sample_id, gold_row in data.items():
+        gold_answer = gold_row.get("gold_answer")
+        if not isinstance(gold_answer, str) or not gold_answer.strip():
+            raise ValueError(f"Missing gold_answer in data: {sample_id}")
+        prediction_row = predictions[sample_id]
+        response = (
+            prediction_row.get("response")
+            or prediction_row.get("raw_response")
+            or prediction_row.get("accepted_response")
+        )
+        prediction, _ = parse_prediction(response if isinstance(response, str) else "")
+        predicted_answer = _answer(prediction)
+        if predicted_answer is not None and predicted_answer == normalize(gold_answer):
+            correct_count += 1
+
+    count = len(data)
+    return {
+        "overall": {
+            "count": count,
+            "correct_count": correct_count,
+            "answer_accuracy": correct_count / count if count else 0.0,
+        }
+    }
+
+
 def _metric_rows(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     rows = list(rows)
     scored = []
@@ -189,12 +245,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--predictions", type=Path, required=True)
     parser.add_argument("--data", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--answer-only",
+        action="store_true",
+        help="Score only the final JSON answer against data.gold_answer",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    metrics = evaluate_predictions(read_jsonl(args.predictions), read_jsonl(args.data) if args.data else None)
+    predictions = read_jsonl(args.predictions)
+    data = read_jsonl(args.data) if args.data else None
+    if args.answer_only:
+        if data is None:
+            raise ValueError("--answer-only requires --data with gold_answer fields")
+        metrics = evaluate_answer_predictions(predictions, data)
+    else:
+        metrics = evaluate_predictions(predictions, data)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(metrics["overall"], indent=2))

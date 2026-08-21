@@ -34,6 +34,14 @@ lib64/
 parts/
 runs/
 data/
+
+# Keep the generated Hi-ToM answer-only benchmark reproducible and reviewable.
+!data/
+data/*
+!data/rft/
+data/rft/*
+!data/rft/hitom_order4/
+!data/rft/hitom_order4/**
 sdist/
 var/
 *.egg-info/

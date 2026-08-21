@@ -1,10 +1,67 @@
 import json
 import unittest
 
-from rft.evaluate import evaluate_predictions
+from rft.evaluate import evaluate_answer_predictions, evaluate_predictions
 
 
 class EvaluateTest(unittest.TestCase):
+    def test_answer_only_ignores_trace_and_normalizes_location(self):
+        data = [
+            {"global_sample_id": "sample-1", "gold_answer": "blue_pantry"},
+            {"global_sample_id": "sample-2", "gold_answer": "red_crate"},
+        ]
+        predictions = [
+            {
+                "global_sample_id": "sample-1",
+                "response": json.dumps(
+                    {
+                        "tom_order": 99,
+                        "belief_trace": [],
+                        "answer": "Blue Pantry",
+                    }
+                ),
+            },
+            {
+                "global_sample_id": "sample-2",
+                "response": json.dumps({"answer": "green_box"}),
+            },
+        ]
+        overall = evaluate_answer_predictions(predictions, data)["overall"]
+        self.assertEqual(overall["count"], 2)
+        self.assertEqual(overall["correct_count"], 1)
+        self.assertEqual(overall["answer_accuracy"], 0.5)
+
+    def test_answer_only_counts_malformed_or_missing_answer_as_wrong(self):
+        data = [
+            {"global_sample_id": "sample-1", "gold_answer": "blue_pantry"},
+            {"global_sample_id": "sample-2", "gold_answer": "red_crate"},
+        ]
+        predictions = [
+            {"global_sample_id": "sample-1", "response": "not json"},
+            {
+                "global_sample_id": "sample-2",
+                "response": json.dumps({"value": "red_crate"}),
+            },
+        ]
+        overall = evaluate_answer_predictions(predictions, data)["overall"]
+        self.assertEqual(overall["correct_count"], 0)
+        self.assertEqual(overall["answer_accuracy"], 0.0)
+
+    def test_answer_only_rejects_id_mismatch_and_duplicates(self):
+        data = [{"global_sample_id": "sample-1", "gold_answer": "blue_pantry"}]
+        with self.assertRaisesRegex(ValueError, "sample IDs differ"):
+            evaluate_answer_predictions(
+                [{"global_sample_id": "sample-2", "response": "{}"}], data
+            )
+        with self.assertRaisesRegex(ValueError, "Duplicate global_sample_id"):
+            evaluate_answer_predictions(
+                [
+                    {"global_sample_id": "sample-1", "response": "{}"},
+                    {"global_sample_id": "sample-1", "response": "{}"},
+                ],
+                data,
+            )
+
     def test_perfect_counterfactual_pair(self):
         rows = []
         for side, observed, answer in (

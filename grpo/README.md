@@ -61,6 +61,24 @@ GRPO checkpoint 都分别在 dev、test 上完成了评测。同一 split 内，
 - `test` 有 600 条纯 4 阶样本。训练集、验证集以及固定 few-shot 均只覆盖
   1-3 阶，因此 test 衡量的是 ToM 阶数外推，而不是普通的同分布泛化。
 
+评测命令如下：
+
+* ```
+  python -m rft.generate \
+    --data /root/autodl-tmp/data/grpo/counterfactual_process_reward_v3_fewshot/test.jsonl \
+    --model /root/autodl-tmp/runs/grpo/qwen25_3b_rft_grpo_n16_seed2026/final \
+    --output /root/autodl-tmp/runs/grpo_eval/${RUN_ID}/test_predictions.jsonl
+  ```
+
+* ```
+  python -m rft.evaluate \
+    --predictions /root/autodl-tmp/runs/grpo_eval/${RUN_ID}/test_predictions.jsonl \
+    --data /root/autodl-tmp/data/grpo/counterfactual_process_reward_v3_fewshot/test.jsonl \
+    --output /root/autodl-tmp/runs/grpo_eval/${RUN_ID}/test_metrics.json
+  ```
+
+* Derived_fewshot.jsonl的评测命令与上述两条命令类似。
+
 ### 总体结果
 
 | 数据 | 指标 | RFT | GRPO | 绝对变化 |
