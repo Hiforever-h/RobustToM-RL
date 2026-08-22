@@ -37,10 +37,17 @@ runs/
 # Keep the generated Hi-ToM answer-only benchmark reproducible and reviewable.
 !data/
 data/*
+!data/counterfactual_process_reward_v3/
 !data/rft/
 data/rft/*
+!data/rft/derived_v3_fewshot/
+!data/rft/derived_v3_fewshot/**
 !data/rft/hitom_order4/
 !data/rft/hitom_order4/**
+!data/Hi-ToM/
+!data/Hi-ToM/**
+!data/ExploreToM/
+!data/ExploreToM/**
 sdist/
 var/
 *.egg-info/

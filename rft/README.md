@@ -217,3 +217,87 @@ python -m rft.evaluate \
   --output runs/hitom_order4/grpo_metrics.json \
   --answer-only
 ```
+
+## Official Hugging Face Hi-ToM release
+
+After downloading `Hi-ToM/Hi-ToM_Dataset` into `data/Hi-ToM`, convert the
+official JSON with:
+
+```bash
+python -m rft.prepare_hitom_hf \
+  --input data/Hi-ToM/Hi-ToM_data.json \
+  --output-dir data/Hi-ToM \
+  --expected-source-count 1200
+```
+
+The source contains 600 underlying tasks represented once as CoTP and once as
+VP. `data/Hi-ToM/all_prompt_variants.jsonl` preserves all 1,200 source rows,
+`data/Hi-ToM/test.jsonl` selects the 600 CoTP rows to avoid double weighting,
+and `data/Hi-ToM/order4_test.jsonl` contains the 120 fourth-order examples.
+The conflict-free counterparts are `data/Hi-ToM/consistent_test.jsonl` with
+462 rows and `data/Hi-ToM/order4_consistent_test.jsonl` with 65 rows.
+
+The official source has 138 duplicated CoTP/VP task pairs whose answer labels
+disagree. They are recorded in `data/Hi-ToM/label_conflicts.jsonl`, and each
+converted example exposes `source_label_conflict`. The recommended files retain
+the upstream CoTP labels rather than silently changing labels.
+
+For the model described here, use `data/Hi-ToM/order4_consistent_test.jsonl`
+when label consistency matters more than benchmark size. Use `order4_test.jsonl`
+for the complete upstream CoTP fourth-order split. Both use the same generation
+CLI and final-answer-only score:
+
+```bash
+python -m rft.generate \
+  --data data/Hi-ToM/order4_consistent_test.jsonl \
+  --model runs/grpo/qwen25_3b_rft_grpo_n16_seed2026/final \
+  --output runs/hitom_hf_order4/predictions.jsonl \
+  --max-new-tokens 384 \
+  --seed 2026
+
+python -m rft.evaluate \
+  --predictions runs/hitom_hf_order4/predictions.jsonl \
+  --data data/Hi-ToM/order4_consistent_test.jsonl \
+  --output runs/hitom_hf_order4/metrics.json \
+  --answer-only
+```
+
+## Official Hugging Face ExploreToM sample
+
+Convert the downloaded `facebook/ExploreToM` CSV with:
+
+```bash
+python -m rft.prepare_exploretom_hf \
+  --input data/ExploreToM/ExploreToM-data-sample.csv \
+  --output-dir data/ExploreToM \
+  --expected-source-count 13309
+```
+
+The publisher describes this as a Llama-3.1-70B-targeted adversarial sample and
+explicitly says it is not the canonical ExploreToM test set. It contains only
+first- and second-order questions. The converter selects container-location
+ToM questions, uses the structured story representation, numbers every event,
+and derives deterministic choices from containers used for the queried object.
+
+`data/ExploreToM/all_container_questions.jsonl` preserves all 1,485 matching
+rows. The recommended `data/ExploreToM/test.jsonl` has 1,053 rows after removing
+non-unique mental-state questions, one-candidate shortcuts, and exact duplicate
+tasks. Its order-specific subsets are `order1_test.jsonl` with 422 rows and
+`order2_test.jsonl` with 631 rows.
+
+Generate and evaluate the recommended second-order subset with:
+
+```bash
+python -m rft.generate \
+  --data data/ExploreToM/order2_test.jsonl \
+  --model runs/grpo/qwen25_3b_rft_grpo_n16_seed2026/final \
+  --output runs/exploretom_hf_order2/predictions.jsonl \
+  --max-new-tokens 384 \
+  --seed 2026
+
+python -m rft.evaluate \
+  --predictions runs/exploretom_hf_order2/predictions.jsonl \
+  --data data/ExploreToM/order2_test.jsonl \
+  --output runs/exploretom_hf_order2/metrics.json \
+  --answer-only
+```
