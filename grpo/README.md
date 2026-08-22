@@ -10,11 +10,28 @@ Create the independent RL environment on the A800 host:
 conda create -n robusttom-grpo python=3.10 -y
 conda activate robusttom-grpo
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install torch==2.4.0 --index-url https://download.pytorch.org/whl/cu121
+python -m pip install torch==2.4.0
 python -m pip install -r requirements.txt
 python -m pip install flash-attn==2.7.0.post2 --no-build-isolation
 python -m pip install -e . --no-deps
 wandb login
+export HF_HOME=/root/autodl-tmp/huggingface
+export HF_HUB_CACHE=/root/autodl-tmp/huggingface/hub
+export TMPDIR=/root/autodl-tmp/tmp
+export HF_ENDPOINT=https://hf-mirror.com
+export RFT_MODEL_PATH=/root/autodl-tmp/runs/rft_train/20260820-qwen25-3b-k16/final
+export RAW_DATA_DIR=/root/RobustToM-RL/data/counterfactual_process_reward_v3
+
+export GRPO_RUN_DIR=/root/autodl-tmp/runs/grpo/qwen25_3b_rft_grpo_n16_seed2026
+export GRPO_DATA_DIR=/root/autodl-tmp/data/grpo/counterfactual_process_reward_v3_fewshot
+export GRPO_LOG_DIR="${GRPO_RUN_DIR}/logs"
+
+export WANDB_DIR="${GRPO_RUN_DIR}/wandb"
+export WANDB_CACHE_DIR=/root/autodl-tmp/cache/wandb
+export RAY_TMPDIR=/root/autodl-tmp/tmp/ray
+export TMPDIR=/root/autodl-tmp/tmp
+RUN_ID=20260822-qwen25-3b-k16
+MODEL=Qwen/Qwen2.5-3B-Instruct
 ```
 
 The main configuration logs to both the terminal and Weights & Biases under

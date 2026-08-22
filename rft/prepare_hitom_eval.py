@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,9 @@ NESTED_BELIEF_SCHEMA = (
     '"answer":"..."}'
 )
 
+STORY_EVENT_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
+NUMBERED_STORY_EVENT = re.compile(r"^\d+\s+(.+)$")
+
 
 def read_csv_rows(path: Path) -> list[dict[str, str]]:
     with path.open(encoding="utf-8", newline="") as stream:
@@ -76,6 +80,40 @@ def parse_boolean(value: str, field: str) -> bool:
     if normalized == "false":
         return False
     raise ValueError(f"Invalid {field} boolean: {value!r}")
+
+
+def number_story_events(story: str) -> str:
+    """Format each sentence-like Hi-ToM event as a one-based numbered line."""
+    source_lines = [line.strip() for line in story.strip().splitlines() if line.strip()]
+    numbered_events = [
+        match.group(1).strip()
+        for line in source_lines
+        if (match := NUMBERED_STORY_EVENT.fullmatch(line))
+    ]
+    if numbered_events:
+        non_event_lines = [
+            line
+            for line in source_lines
+            if not NUMBERED_STORY_EVENT.fullmatch(line) and line != "***"
+        ]
+        if non_event_lines and non_event_lines != [
+            "Read the following story and answer the multiple-choice question. "
+            "Please provide answer without explanations."
+        ]:
+            raise ValueError(f"Unexpected text around numbered Hi-ToM events: {non_event_lines}")
+        events = numbered_events
+    else:
+        events = [
+            event.strip()
+            for event in STORY_EVENT_BOUNDARY.split(story.strip())
+            if event.strip()
+        ]
+    if not events:
+        raise ValueError("Hi-ToM story must contain at least one event")
+    return "\n".join(
+        f"{event_number} {event}"
+        for event_number, event in enumerate(events, start=1)
+    )
 
 
 def build_base_prompt(story: str, question: str, choices: str) -> str:
@@ -108,12 +146,14 @@ def convert_row(row: dict[str, str], order: int) -> dict[str, Any]:
     if row_order != order:
         raise ValueError(f"Expected order {order}, got {row_order}")
 
-    story = row["story"].strip()
+    raw_story = row["story"].strip()
     question = row["question"].strip()
     choices = row["choices"].strip()
     answer = row["answer"].strip()
-    if not story or not question or not choices or not answer:
+    if not raw_story or not question or not choices or not answer:
         raise ValueError("Hi-ToM story, question, choices, and answer must be non-empty")
+
+    story = number_story_events(raw_story)
 
     belief_chain = question_agents(question)
     if len(belief_chain) != order:
@@ -193,6 +233,7 @@ def prepare_hitom_eval(
         "story_length_counts": dict(Counter(str(row["story_length"]) for row in rows)),
         "few_shot_version": FEW_SHOT_VERSION,
         "few_shot_count": FEW_SHOT_COUNT,
+        "story_event_numbering": "one-based sentence order",
         "order_trace_instruction": ORDER_TRACE_INSTRUCTION,
         "output_file": str(output_path),
         "output_sha256": sha256_file(output_path),
@@ -204,6 +245,7 @@ def prepare_hitom_eval(
         "# Hi-ToM order-4 answer-only benchmark\n\n"
         "This directory is derived from `data/cleaned_tom/raw/hi_tom_3000.csv` "
         "by selecting the 600 fourth-order questions. Each prompt uses the "
+        "same one-based event numbering as the symbolic-v3 data, plus the "
         "symbolic-v3 three-shot block and the explicit `tom_order` / "
         "`belief_trace` cardinality instruction through `build_grpo_prompt`. "
         f"The exact clarification is: `{ORDER_TRACE_INSTRUCTION}` "

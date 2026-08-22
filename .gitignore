@@ -33,7 +33,6 @@ lib/
 lib64/
 parts/
 runs/
-data/
 
 # Keep the generated Hi-ToM answer-only benchmark reproducible and reviewable.
 !data/

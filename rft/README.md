@@ -182,6 +182,10 @@ python -m rft.prepare_hitom_eval \
   --expected-count 600
 ```
 
+As in the symbolic-v3 data, every event in the Hi-ToM `story` field and in the
+corresponding `Story:` prompt section is written on its own line with a
+one-based `1`, `2`, `3`, ... prefix.
+
 The builder calls `build_grpo_prompt`, so every benchmark prompt contains the
 same fixed order-1/2/3 few-shot block used by symbolic v3 and exactly one copy
 of the following clarification:

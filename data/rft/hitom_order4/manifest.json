@@ -18,7 +18,8 @@
   },
   "few_shot_version": "symbolic-v3-3shot-1.0",
   "few_shot_count": 3,
+  "story_event_numbering": "one-based sentence order",
   "order_trace_instruction": "tom_order is exactly the number of names in belief_chain, not the number of story events. belief_trace contains exactly tom_order entries.",
   "output_file": "data/rft/hitom_order4/test.jsonl",
-  "output_sha256": "269624efff3b61d4a882a5a03c7d77c64f71a07b2176798160c1d261e8fb3a1c"
+  "output_sha256": "f492200412077ab7561624f134d6a68bc8c62165a56497cef01204598d2e6f0a"
 }
